@@ -11,6 +11,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+using namespace std;
 
 namespace pony {
 
@@ -90,6 +91,10 @@ public:
   // Return the current column in the file.
   int getCol() { return curCol; }
 
+  //TODO:
+  vector<string> tokens;
+  bool is_error = false;
+
 private:
   /// Delegate to a derived class fetching the next line. Returns an empty
   /// string to signal end of file (EOF). Lines are expected to always finish
@@ -112,6 +117,17 @@ private:
      *  Write your code here.
      *
      */
+    if(curLineBuffer.empty()) return EOF;
+    ++curCol;
+    auto nextchar = curLineBuffer.front();
+    curLineBuffer = curLineBuffer.drop_front();
+    if (curLineBuffer.empty())
+      curLineBuffer = readNextLine();
+    if (nextchar == '\n') {
+      ++curLineNum;
+      curCol = 0;
+    }
+    return nextchar;
   }
 
   ///  Return the next token from standard input.
@@ -140,16 +156,69 @@ private:
      *  Write your code here.
      *
      */
+    if (isalpha(lastChar) || lastChar == '_') {//indicator or key word
+      std::string varStr;
+      bool no_digit = true;
+      bool error_indicator = false;
+
+      while (isalnum(lastChar) || lastChar == '_'){
+        if (isdigit(lastChar)) {
+          no_digit = false;
+        }
+        if (!no_digit) {
+          if (isalpha(lastChar) || lastChar == '_') {
+            error_indicator = true;//the digit is not at the end
+            is_error = true;
+            cout << "Token error (" << curLineNum << ", " << curCol 
+            << "): digits should be at the end of an indicator" << endl;
+            break;
+          }
+        }
+        varStr += lastChar;
+        lastChar = Token(getNextChar());
+      }
+
+      if (!error_indicator) {
+        if (varStr == "return") {tokens.push_back("return"); return tok_return;}
+        if (varStr == "def") {tokens.push_back("def"); return tok_def;}
+        if (varStr == "var") {tokens.push_back("var"); return tok_var;}
+        identifierStr = varStr;
+        tokens.push_back(identifierStr);
+        return tok_identifier;
+      }
+    }
 
     //TODO: 3. 改进识别数字的方法，使编译器可以识别并在终端报告非法数字，非法表示包括：9.9.9，9..9，.123等。
-    if (isdigit(lastChar) || lastChar == '.') {
+    bool first_digit = true;
+    bool error_digit = false;
+    int point_count = 1;
+    if (isdigit(lastChar) || lastChar == '.') {//digit
       std::string numStr;
       do {
+        //'.' at the begining
+        if(first_digit && lastChar == '.'){
+          error_digit = true;
+          is_error = true;
+          cout << "Token error (" << curLineNum << ", " << curCol 
+            << "): the point should not be at the begining of a digit" << endl;
+        }
+        first_digit = false;
+
+        if(lastChar == '.'){
+          point_count--;
+          if(point_count < 0){
+            error_digit = true;//point appears more than once
+            is_error = true;
+            cout << "Token error (" << curLineNum << ", " << curCol 
+            << "): the point appears more than once in a digit" << endl;
+          }
+        }
         numStr += lastChar;
         lastChar = Token(getNextChar());
-      } while (isdigit(lastChar) || lastChar == '.');
+      } while (!error_digit && (isdigit(lastChar) || lastChar == '.'));
 
       numVal = strtod(numStr.c_str(), nullptr);
+      if(!error_digit) tokens.push_back(numStr);
       return tok_number;
     }
 
@@ -169,6 +238,17 @@ private:
 
     // Otherwise, just return the character as its ascii value.
     Token thisChar = Token(lastChar);
+
+    switch(lastChar){
+      case ';': tokens.push_back(string(1, ';')); break;
+      case '(': tokens.push_back(string(1, '(')); break;
+      case ')': tokens.push_back(string(1, ')')); break;
+      case '[': tokens.push_back(string(1, '[')); break;
+      case ']': tokens.push_back(string(1, ']')); break;
+      case '{': tokens.push_back(string(1, '{')); break;
+      case '}': tokens.push_back(string(1, '}')); break;
+    }
+
     lastChar = Token(getNextChar());
     return thisChar;
   }
@@ -188,8 +268,8 @@ private:
   /// The last value returned by getNextChar(). We need to keep it around as we
   /// always need to read ahead one character to decide when to end a token and
   /// we can't put it back in the stream after reading from it.
-  Token lastChar = Token(' ');
-
+  public: Token lastChar = Token(' ');
+  private:
   /// Keep track of the current line number in the input stream
   int curLineNum = 0;
 
@@ -198,6 +278,8 @@ private:
 
   /// Buffer supplied by the derived class on calls to `readNextLine()`
   llvm::StringRef curLineBuffer = "\n";
+  
+  
 
 };
 

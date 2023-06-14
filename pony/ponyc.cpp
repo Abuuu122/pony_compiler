@@ -36,6 +36,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 using namespace pony;
+using namespace std;
 namespace cl = llvm::cl;
 
 static cl::opt<std::string> inputFilename(cl::Positional,
@@ -200,6 +201,15 @@ int dumpToken() {
     *  Write your code here.
     *
     */
+  while(lexer.lastChar != EOF){
+    lexer.getNextToken();
+  }
+  if(!lexer.is_error){
+    for(auto x: lexer.tokens){
+      cout << x << ' ';
+    }
+    cout << endl;
+  }
   return 0;
 }
 

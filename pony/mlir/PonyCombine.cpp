@@ -42,6 +42,7 @@ struct SimplifyRedundantTranspose : public mlir::OpRewritePattern<TransposeOp> {
      *  Write your code here.
      *
      */
+    Value input = op.getOperand ();
 
 
     // Step 2: Check whether the input is defined by another transpose. If not defined, return failure().
@@ -56,6 +57,9 @@ struct SimplifyRedundantTranspose : public mlir::OpRewritePattern<TransposeOp> {
      *
      */
 
+    auto inputOp = input.getDefiningOp<TransposeOp>();
+    if (!inputOp) return failure();
+
     // step 3: Otherwise, we have a redundant transpose. Use the rewriter to remove redundancy.
     // Hint: For mlir::PatternRewriter, there is a function you may use to remove redundancy: 
     //       void replaceOp (mlir::Operation *op, mlir::ValueRange newValues)
@@ -66,6 +70,7 @@ struct SimplifyRedundantTranspose : public mlir::OpRewritePattern<TransposeOp> {
      *  Write your code here.
      *
      */
+    rewriter.replaceOp (op , {inputOp.getOperand()});
     return success();
   }
 };

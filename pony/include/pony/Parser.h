@@ -180,15 +180,17 @@ private:
   // Some functions may be useful:  getLastLocation(); getNextToken();
   std::unique_ptr<VarDeclExprAST> parseDeclaration() {
     auto loc = lexer.getLastLocation();
-    std::string id;
+    //std::string id;
     // TODO: check to see if this is a 'var' declaration 
     //       If not, report the error with 'parseError', otherwise eat 'var'  
     /* 
-     *
+     *SS
      *  Write your code here.
      *
      */
-
+    if (lexer.getCurToken() != tok_var)
+      return parseError<VarDeclExprAST>("var", "in variable declaration");
+    lexer.getNextToken(); // eat var
     // TODO: check to see if this is a variable name(identifier)
     //       If not, report the error with 'parseError', otherwise eat the variable name
     /* 
@@ -196,10 +198,15 @@ private:
      *  Write your code here.
      *
      */
+    if (lexer.getCurToken() != tok_identifier)
+        return parseError<VarDeclExprAST>("identified", "after 'var' declaration");
+    // eat the variable name
+    std::string id(lexer.getId());
+    lexer.getNextToken(); // eat id
 
     std::unique_ptr<VarType> type; // Type is optional, it can be inferred
     // TODO: modify the code to additionally support the third method: var a[][] = ... 
-    if (lexer.getCurToken() == '<') {
+    if (lexer.getCurToken() == '<' || lexer.getCurToken() == '[') {
       type = parseType();
       if (!type)
         return nullptr;
@@ -207,6 +214,7 @@ private:
 
     if (!type)
       type = std::make_unique<VarType>();
+
     lexer.consume(Token('='));
     auto expr = parseExpression();
     return std::make_unique<VarDeclExprAST>(std::move(loc), std::move(id),
@@ -217,23 +225,40 @@ private:
   /// shape_list ::= num | num , shape_list
   // TODO: make an extension to support the new type like var a[2][3] = [1, 2, 3, 4, 5, 6];
   std::unique_ptr<VarType> parseType() {
-    if (lexer.getCurToken() != '<')
-      return parseError<VarType>("<", "to begin type");
-    lexer.getNextToken(); // eat <
+    if (lexer.getCurToken() != '<' && lexer.getCurToken() != '[')
+      return parseError<VarType>("< or [", "to begin type");
+    else if (lexer.getCurToken() == '<') {
+      lexer.getNextToken(); // eat <
 
-    auto type = std::make_unique<VarType>();
+      auto type = std::make_unique<VarType>();
 
-    while (lexer.getCurToken() == tok_number) {
-      type->shape.push_back(lexer.getValue());
-      lexer.getNextToken();
-      if (lexer.getCurToken() == ',')
+      //the <> type
+      while (lexer.getCurToken() == tok_number) {
+        type->shape.push_back(lexer.getValue());
         lexer.getNextToken();
-    }
+        if (lexer.getCurToken() == ',')
+          lexer.getNextToken();
+      }
 
-    if (lexer.getCurToken() != '>')
-      return parseError<VarType>(">", "to end type");
-    lexer.getNextToken(); // eat >
-    return type;
+      if (lexer.getCurToken() != '>')
+        return parseError<VarType>(">", "to end type");
+      lexer.getNextToken(); // eat >
+      return type;
+    } else {
+      // the [] type
+      auto type = std::make_unique<VarType>();
+      while (lexer.getCurToken() == '[') {
+        lexer.getNextToken(); // eat [
+        if (lexer.getCurToken() == tok_number) {
+          type->shape.push_back(lexer.getValue());
+          lexer.getNextToken();
+        }
+        if (lexer.getCurToken() != ']')
+          return parseError<VarType>("]", "to end shape");
+        lexer.getNextToken(); // eat ]
+      }
+      return type;
+    }
   }
 
   /// Parse a return statement.
@@ -302,12 +327,55 @@ private:
   //        3. 如果仅是一个变量名，则返回其对应的AST。可以使用std::make_unique<VariableExprAST>(...)；
   //        4. 如果是函数调用，其参数列表中的参数可以通过parseExpression()逐个解析，并存放在std::vector<std::unique_ptr<ExprAST>>中。最终返回相应AST时，可以使用std::make_unique<CallExprAST>(...)；
   //        5. 如果是print，要确保其内部只有一个参数，如果有多个参数，要输出错误信息。最终返回相应AST时，可以使用std::make_unique<PrintExprAST>(...)。
+  
+  std::unique_ptr<ExprAST> parseCallExpr(llvm::StringRef name,
+                                         const Location &loc) {
+    lexer.consume(Token('('));
+    std::vector<std::unique_ptr<ExprAST>> args;//the arguments
+    if (lexer.getCurToken() != ')') {
+      while (true) {//recursively get the args
+        if (auto arg = parseExpression())
+          args.push_back(std::move(arg));
+        else
+          return nullptr;
+
+        if (lexer.getCurToken() == ')')
+          break;
+
+        if (lexer.getCurToken() != ',')
+          return parseError<ExprAST>(", or )", "in argument list");
+        lexer.getNextToken();
+      }
+    }
+    lexer.consume(Token(')'));
+
+    // for the print, there cant only be one argument
+    if (name == "print") {
+      if (args.size() != 1)
+        return parseError<ExprAST>("<single arg>", "as argument to print()");
+
+      return std::make_unique<PrintExprAST>(loc, std::move(args[0]));
+    }
+
+    return std::make_unique<CallExprAST>(loc, std::string(name),
+                                         std::move(args));
+  }
   std::unique_ptr<ExprAST> parseIdentifierExpr() {
     /* 
      *
      *  Write your code here.
      *
      */
+    std::string name(lexer.getId());
+
+    auto loc = lexer.getLastLocation();
+    lexer.getNextToken(); // eat identifier.
+
+    if (lexer.getCurToken() != '(') 
+      return std::make_unique<VariableExprAST>(std::move(loc), name);
+
+    // function call.
+    return parseCallExpr(name, loc);
   }
 
   /// Parse a literal number.
@@ -437,6 +505,38 @@ private:
      *  Write your code here.
      *
      */
+    // If this is a binop, find its precedence.
+    while (true) {
+      int tokPrec = getTokPrecedence();
+
+      // If this is a binop that binds at least as tightly as the current binop,
+      // consume it, otherwise we are done.
+      if (tokPrec < exprPrec)
+        return lhs;
+
+      // Okay, we know this is a binop.
+      int binOp = lexer.getCurToken();
+      lexer.consume(Token(binOp));
+      auto loc = lexer.getLastLocation();
+
+      // Parse the primary expression after the binary operator.
+      auto rhs = parsePrimary();
+      if (!rhs)
+        return parseError<ExprAST>("expression", "to complete binary operator");
+
+      // If BinOp binds less tightly with rhs than the operator after rhs, let
+      // the pending operator take rhs as its lhs.
+      int nextPrec = getTokPrecedence();
+      if (tokPrec < nextPrec) {
+        rhs = parseBinOpRHS(tokPrec + 1, std::move(rhs));
+        if (!rhs)
+          return nullptr;
+      }
+
+      // Merge lhs/RHS.
+      lhs = std::make_unique<BinaryExprAST>(std::move(loc), binOp,
+                                            std::move(lhs), std::move(rhs));
+    }
   }
   
   /// Helper function to signal errors while parsing, it takes an argument
